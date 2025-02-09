@@ -5,10 +5,10 @@
     <title>Sistema Neural de Previsão de Jogos</title>
     <!-- Carrega TensorFlow.js -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <!-- Você pode incluir uma fonte do Google Fonts, por exemplo: -->
+    <!-- Inclui fonte do Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-      /* Reset básico e fontes */
+      /* Reset e configuração básica */
       * {
         box-sizing: border-box;
         margin: 0;
@@ -33,6 +33,28 @@
         font-size: 1.1em;
         color: #555;
       }
+      /* Botões de Ação */
+      .action-buttons {
+        max-width: 500px;
+        margin: 0 auto 20px auto;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .action-buttons button {
+        flex: 1;
+        padding: 12px;
+        background: #1a73e8;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 1.1em;
+        cursor: pointer;
+        transition: background 0.3s ease;
+      }
+      .action-buttons button:hover {
+        background: #1558b0;
+      }
       /* Formulário de Busca */
       form#search-form {
         max-width: 500px;
@@ -48,8 +70,7 @@
         margin-bottom: 8px;
         color: #444;
       }
-      form#search-form input[type="date"],
-      form#search-form input[type="text"] {
+      form#search-form input[type="date"] {
         width: 100%;
         padding: 10px;
         margin-bottom: 15px;
@@ -143,7 +164,7 @@
       /* Responsividade */
       @media (max-width: 600px) {
         header h1 { font-size: 2em; }
-        form#search-form { padding: 15px; }
+        .action-buttons, form#search-form { padding: 15px; }
         .card-header {
           flex-direction: column;
           align-items: flex-start;
@@ -163,18 +184,25 @@
       <h1>Sistema Neural de Previsão de Jogos</h1>
       <p>Consulte as dicas e veja o índice de confiança das previsões</p>
     </header>
-    <!-- Formulário de Busca -->
+
+    <!-- Botões de Ação: Treinar Modelo e Buscar Jogos -->
+    <div class="action-buttons">
+      <button id="train-model-btn">Treinar Modelo (Novamente)</button>
+      <button id="search-btn">Pesquisar Dicas</button>
+    </div>
+
+    <!-- Formulário de Busca (para selecionar data) -->
     <form id="search-form">
       <label for="dateFrom">Selecione a Data:</label>
-      <!-- Usando input type "date" para facilitar a escolha -->
       <input type="date" id="dateFrom" required>
       <button type="submit">Pesquisar</button>
     </form>
+
     <!-- Área para exibir os resultados -->
     <div id="results"></div>
-    <!-- Área para logs -->
+    <!-- Área para exibir logs -->
     <pre id="log"></pre>
-    
+
     <script>
       /******************************************************************
        * CONFIGURAÇÕES E FUNÇÕES BÁSICAS
@@ -201,10 +229,9 @@
       }
 
       /******************************************************************
-       * FUNÇÕES DE ACESSO ÀS APIs
+       * FUNÇÕES DE ACESSO ÀS APIS (DADOS REAIS)
        ******************************************************************/
       
-      // Busca jogos do dia via servidor proxy
       async function fetchDailyGames() {
         const today = getCurrentDate();
         const endpoint = "/api/sports?dateFrom=" + encodeURIComponent(today) + "&dateTo=" + encodeURIComponent(today);
@@ -222,7 +249,6 @@
         }
       }
 
-      // Busca dados históricos de uma equipe via API‑Sports
       async function fetchTeamHistoricalData(teamId) {
         const season = 2024;
         const url = "https://v3.football.api-sports.io/fixtures?team=" + teamId + "&season=" + season + "&last=30";
@@ -257,7 +283,7 @@
               }
             });
           }
-          // Valores padrão para ranking, campeonatos e forma
+          // Dados do ranking, títulos e forma devem vir da API ou de outro serviço (aqui estão zerados)
           const ranking = 0, championships = 0, form = "";
           return { jogos: 30, vitorias: wins, empates: draws, derrotas: losses, golsFavor: goalsFor, golsContra: goalsAgainst, ranking: ranking, campeonatosGanhados: championships, form: form };
         } catch (error) {
@@ -266,7 +292,6 @@
         }
       }
 
-      // Busca head-to-head entre duas equipes via API‑Sports
       async function fetchHeadToHead(teamAId, teamBId) {
         const season = 2024;
         const url = "https://v3.football.api-sports.io/fixtures/headtohead?h2h=" + teamAId + "-" + teamBId + "&season=" + season + "&last=15";
@@ -305,10 +330,10 @@
       }
 
       /******************************************************************
-       * FUNÇÕES DE CÁLCULO MANUAL (FALLBACK)
+       * FUNÇÕES DE CÁLCULO DE FEATURES (USANDO DADOS REAIS)
        ******************************************************************/
       
-      // Converte a string de forma (ex: "WWLWD") em um escore numérico
+      // Função para calcular a "forma" como pontuação (vitória = +1, derrota = -1)
       function formScore(formStr) {
         if (!formStr) return 0;
         let score = 0;
@@ -320,109 +345,10 @@
         return score;
       }
 
-      // Cálculo manual do índice de confiança baseado na dica e ajustes
-      function calcularIndiceConfiancaPorTip(jogo, teamA, teamB, headToHead) {
-        const tip = jogo["1x2"];
-        const oddHome = parseFloat(jogo.home_win_odds) || 0;
-        const oddDraw = parseFloat(jogo.draw_odds) || 0;
-        const oddAway = parseFloat(jogo.away_win_odds) || 0;
-        const pHome = oddHome > 0 ? 1 / oddHome : 0;
-        const pDraw = oddDraw > 0 ? 1 / oddDraw : 0;
-        const pAway = oddAway > 0 ? 1 / oddAway : 0;
-        const totalP = pHome + pDraw + pAway;
-        const norm_pHome = totalP > 0 ? pHome / totalP : 0;
-        const norm_pDraw = totalP > 0 ? pDraw / totalP : 0;
-        const norm_pAway = totalP > 0 ? pAway / totalP : 0;
-        let baseProb = 0;
-        if (tip === "1") baseProb = norm_pHome;
-        else if (tip === "X") baseProb = norm_pDraw;
-        else if (tip === "2") baseProb = norm_pAway;
-        else if (tip === "1X") baseProb = norm_pHome + norm_pDraw;
-        else if (tip === "2X") baseProb = norm_pAway + norm_pDraw;
-        else if (tip === "12") baseProb = norm_pHome + norm_pAway;
-        else baseProb = 0;
-
-        const winRateA = teamA.jogos > 0 ? teamA.vitorias / teamA.jogos : 0;
-        const winRateB = teamB.jogos > 0 ? teamB.vitorias / teamB.jogos : 0;
-        const winRateDiff = (winRateA - winRateB) / 2;
-
-        const goalDiffA = teamA.jogos > 0 ? (teamA.golsFavor - teamA.golsContra) / teamA.jogos : 0;
-        const goalDiffB = teamB.jogos > 0 ? (teamB.golsFavor - teamB.golsContra) / teamB.jogos : 0;
-        const goalAdjustment = (goalDiffA - goalDiffB) / 10;
-
-        let h2hAdjustment = 0;
-        if (headToHead.jogos > 0) {
-          if (tip === "1" || tip === "1X")
-            h2hAdjustment = ((headToHead.winsA - headToHead.winsB) / headToHead.jogos) * 0.1;
-          else if (tip === "2" || tip === "2X")
-            h2hAdjustment = ((headToHead.winsB - headToHead.winsA) / headToHead.jogos) * 0.1;
-        }
-
-        let rankingAdjustment = 0;
-        if (tip === "1" || tip === "1X")
-          rankingAdjustment = (teamB.ranking - teamA.ranking) / 100;
-        else if (tip === "2" || tip === "2X")
-          rankingAdjustment = (teamA.ranking - teamB.ranking) / 100;
-
-        let trophyAdjustment = 0;
-        if (tip === "1" || tip === "1X")
-          trophyAdjustment = (teamA.campeonatosGanhados - teamB.campeonatosGanhados) / 50;
-        else if (tip === "2" || tip === "2X")
-          trophyAdjustment = (teamB.campeonatosGanhados - teamA.campeonatosGanhados) / 50;
-
-        const formA = formScore(teamA.form || "");
-        const formB = formScore(teamB.form || "");
-        const formAdjustment = (formA - formB) / 10;
-
-        const overallAdjustment = winRateDiff + goalAdjustment + h2hAdjustment + rankingAdjustment + trophyAdjustment + formAdjustment;
-        let adjustedProb = baseProb + overallAdjustment;
-        adjustedProb = Math.min(Math.max(adjustedProb, 0), 1);
-
-        const myOdds = adjustedProb > 0 ? 1 / adjustedProb : Infinity;
-        const marketOdd = parseFloat(getOddTip(jogo)) || 0;
-        let oddsAdjustment = 0;
-        if (myOdds !== Infinity && marketOdd > 0) {
-          oddsAdjustment = ((marketOdd - myOdds) / marketOdd) * 0.1;
-        }
-        let finalIndex = adjustedProb + oddsAdjustment;
-        finalIndex = Math.min(Math.max(finalIndex, 0), 1);
-        return finalIndex;
-      }
-
-      // Retorna a odd conforme o tipo de previsão
-      function getOddTip(jogo) {
-        const tip = jogo["1x2"];
-        let odd;
-        if (tip === "1") odd = jogo.home_win_odds;
-        else if (tip === "X") odd = jogo.draw_odds;
-        else if (tip === "2") odd = jogo.away_win_odds;
-        else if (tip === "12") odd = jogo["12_odds"];
-        else if (tip === "1X") odd = jogo["1x_odds"];
-        else if (tip === "2X") odd = jogo["2x_odds"];
-        else odd = "N/A";
-        return odd;
-      }
-
-      /******************************************************************
-       * FUNÇÕES DO MODELO NEURAL
-       ******************************************************************/
-
-      // Variável global para armazenar o modelo neural pré-treinado
-      let neuralModel = null;
-
-      // Arrays de médias e desvios para normalização (ajuste conforme os dados usados no treinamento)
-      const medias = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];  
-      const desvios = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
-
-      // Função para normalizar um vetor de características
-      function normalizeVector(vector) {
-        return vector.map((value, index) => (value - medias[index]) / desvios[index]);
-      }
-
-      // Função para extrair o vetor de características (11 features) a partir dos dados do jogo e das equipes
+      // Função para extrair um vetor de features (real) a partir dos dados obtidos das APIs
       function extractFeatureVector(jogo, teamA, teamB, headToHead) {
         const tip = jogo["1x2"];
-        // 1. Base probability
+        // 1. Base probability (a partir das odds)
         const oddHome = parseFloat(jogo.home_win_odds) || 0;
         const oddDraw = parseFloat(jogo.draw_odds) || 0;
         const oddAway = parseFloat(jogo.away_win_odds) || 0;
@@ -442,15 +368,15 @@
           else if (tip === "2X") baseProb = normAway + normDraw;
           else if (tip === "12") baseProb = normHome + normAway;
         }
-        // 2. Diferença de taxa de vitórias
+        // 2. Diferença de taxa de vitórias (casa vs visitante)
         const winRateA = teamA.jogos > 0 ? teamA.vitorias / teamA.jogos : 0;
         const winRateB = teamB.jogos > 0 ? teamB.vitorias / teamB.jogos : 0;
         const winRateDiff = (winRateA - winRateB) / 2;
-        // 3. Diferença de média de gols
+        // 3. Diferença de média de gols (marcados - sofridos)
         const goalDiffA = teamA.jogos > 0 ? (teamA.golsFavor - teamA.golsContra) / teamA.jogos : 0;
         const goalDiffB = teamB.jogos > 0 ? (teamB.golsFavor - teamB.golsContra) / teamB.jogos : 0;
         const goalDiff = (goalDiffA - goalDiffB) / 10;
-        // 4. Head-to-head
+        // 4. Head-to-head (diferença de resultados)
         let h2h = 0;
         if (headToHead.jogos > 0) {
           if (tip === "1" || tip === "1X")
@@ -458,27 +384,27 @@
           else if (tip === "2" || tip === "2X")
             h2h = ((headToHead.winsB - headToHead.winsA) / headToHead.jogos) * 0.1;
         }
-        // 5. Diferença de ranking
+        // 5. Diferença de ranking (se os dados estiverem disponíveis)
         let rankingDiff = 0;
         if (tip === "1" || tip === "1X")
           rankingDiff = (teamB.ranking - teamA.ranking) / 100;
         else if (tip === "2" || tip === "2X")
           rankingDiff = (teamA.ranking - teamB.ranking) / 100;
-        // 6. Diferença de campeonatos ganhos
+        // 6. Diferença de campeonatos ganhos (histórico)
         let trophyDiff = 0;
         if (tip === "1" || tip === "1X")
           trophyDiff = (teamA.campeonatosGanhados - teamB.campeonatosGanhados) / 50;
         else if (tip === "2" || tip === "2X")
           trophyDiff = (teamB.campeonatosGanhados - teamA.campeonatosGanhados) / 50;
-        // 7. Diferença de forma (momentum)
+        // 7. Diferença de forma (momentum) – se houver dados de forma
         const formA = formScore(teamA.form || "");
         const formB = formScore(teamB.form || "");
         const formDiff = (formA - formB) / 10;
-        // 8. Vantagem de casa
+        // 8. Vantagem de casa (valor fixo se a dica for para a casa)
         const homeAdvantage = (tip === "1" || tip === "1X") ? 0.05 : 0;
-        // 9. Ajuste extra de momentum se diferença significativa
+        // 9. Ajuste extra de momentum (se a diferença na forma for significativa)
         const extraMomentum = Math.abs(formA - formB) >= 2 ? (formA - formB) * 0.01 : 0;
-        // 10. Ajuste ofensivo
+        // 10. Ajuste ofensivo (diferença entre gols marcados e sofridos, por jogo)
         let offAdjust = 0;
         if (tip === "1" || tip === "1X") {
           const offA = teamA.jogos > 0 ? teamA.golsFavor / teamA.jogos : 0;
@@ -489,14 +415,13 @@
           const defA = teamA.jogos > 0 ? teamA.golsContra / teamA.jogos : 0;
           offAdjust = (offB - defA) * 0.05;
         }
-        // 11. Ajuste baseado na discrepância entre a odd implícita e a odd de mercado
+        // 11. Ajuste de odds: diferença entre a odd implícita e a odd de mercado
         const myOdds = baseProb > 0 ? 1 / baseProb : Infinity;
         const marketOdd = parseFloat(getOddTip(jogo)) || 0;
         let oddsAdjust = 0;
         if (myOdds !== Infinity && marketOdd > 0) {
           oddsAdjust = ((marketOdd - myOdds) / marketOdd) * 0.1;
         }
-        // Vetor de features (11 features)
         const features = [
           baseProb,
           winRateDiff,
@@ -510,67 +435,100 @@
           offAdjust,
           oddsAdjust
         ];
-        // Retorna o vetor normalizado
         return normalizeVector(features);
       }
 
-      // Função para prever o índice de confiança usando o modelo neural
-      async function predictConfidenceIndex(jogo, teamA, teamB, headToHead) {
-        if (neuralModel === null) {
-          log("Modelo neural não carregado; utilizando cálculo manual.");
-          return calcularIndiceConfiancaPorTip(jogo, teamA, teamB, headToHead);
+      // Função para treinar um novo modelo usando dados reais das APIs
+      async function trainNewModel() {
+        log("Iniciando treinamento do modelo com dados reais das APIs...");
+        // Busca jogos do dia (dados reais)
+        const games = await fetchDailyGames();
+        if (!games || games.length === 0) {
+          log("Nenhum jogo retornado pelas APIs. Abortando treinamento.");
+          return;
         }
-        const featureVector = extractFeatureVector(jogo, teamA, teamB, headToHead);
-        const inputTensor = tf.tensor2d([featureVector]); // 1 exemplo, N features
-        const outputTensor = neuralModel.predict(inputTensor);
-        const prediction = await outputTensor.data();
-        inputTensor.dispose();
-        outputTensor.dispose();
-        return prediction[0];
+        let trainingFeatures = [];
+        let trainingTargets = [];
+        // Para cada jogo, coleta os dados reais para compor o conjunto de treinamento
+        for (let game of games) {
+          const [teamAData, teamBData, h2hData] = await Promise.all([
+            fetchTeamHistoricalData(game.homeID),
+            fetchTeamHistoricalData(game.awayID),
+            fetchHeadToHead(game.homeID, game.awayID)
+          ]);
+          // Calcula o vetor de features reais
+          const features = extractFeatureVector(game, teamAData, teamBData, h2hData);
+          // Define o target como o índice de confiança (calculado manualmente – este valor será usado como "ground truth" para treinamento)
+          const target = calcularIndiceConfiancaPorTip(game, teamAData, teamBData, h2hData);
+          trainingFeatures.push(features);
+          trainingTargets.push([target]);
+        }
+        // Converte os arrays em tensores
+        const X = tf.tensor2d(trainingFeatures);
+        const y = tf.tensor2d(trainingTargets);
+        // Define uma nova arquitetura para o modelo
+        const model = tf.sequential();
+        model.add(tf.layers.dense({ inputShape: [11], units: 64, activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
+        model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError', metrics: ['mae'] });
+        log("Treinando o novo modelo com dados reais...");
+        await model.fit(X, y, {
+          epochs: 50,
+          batchSize: 8,
+          validationSplit: 0.2,
+          callbacks: {
+            onEpochEnd: (epoch, logs) => {
+              log(`Epoch ${epoch + 1}: loss = ${logs.loss.toFixed(4)}, mae = ${logs.mae.toFixed(4)}`);
+            }
+          }
+        });
+        neuralModel = model;
+        log("Treinamento concluído e novo modelo atualizado!");
+        // Opcional: você pode oferecer um link para salvar o novo modelo via downloads
+        // model.save('downloads://novo-modelo');
       }
 
-      // Função para carregar o modelo neural a partir do GitHub Pages
+      /******************************************************************
+       * FUNÇÃO PARA CARREGAR O MODELO NEURAL (HOSPEDADO)
+       ******************************************************************/
       async function loadNeuralModel() {
         try {
-          log("Carregando modelo neural...");
-          // Atualize a URL abaixo para a URL real do seu model.json hospedado via GitHub Pages.
-          neuralModel = await tf.loadLayersModel("https://seuusuario.github.io/seu-repositorio/model.json");
+          log("Carregando modelo neural da hospedagem...");
+          // Como os arquivos estão na raiz do GitHub Pages,
+          // a URL é:
+          neuralModel = await tf.loadLayersModel("https://gaarrudazo.github.io/ia/model.json");
           log("Modelo neural carregado com sucesso.");
         } catch (error) {
           log("Erro ao carregar o modelo neural: " + error);
         }
       }
 
-      // Carrega o modelo neural assim que a página for carregada
+      // Tenta carregar o modelo hospedado assim que a página for carregada
       loadNeuralModel();
 
       /******************************************************************
-       * FUNÇÃO DE RENDERIZAÇÃO DOS CARTÕES
+       * FUNÇÃO DE RENDERIZAÇÃO DOS CARTÕES (INFERÊNCIA)
        ******************************************************************/
       async function renderCards(games) {
         const resultsSection = document.getElementById("results");
         resultsSection.innerHTML = "";
         for (let i = 0; i < games.length; i++) {
           const game = games[i];
-          // Busca dados históricos e head-to-head em paralelo
           const [teamAData, teamBData, h2hData] = await Promise.all([
             fetchTeamHistoricalData(game.homeID),
             fetchTeamHistoricalData(game.awayID),
             fetchHeadToHead(game.homeID, game.awayID)
           ]);
-          // Prever o índice de confiança (usando o modelo neural ou fallback manual)
           const confidenceIndex = await predictConfidenceIndex(game, teamAData, teamBData, h2hData);
-          // Define a classificação visual
           let classification = { text: "Baixa Confiança", cssClass: "low" };
           if (confidenceIndex >= 0.70) {
             classification = { text: "Alta Confiança", cssClass: "high" };
           } else if (confidenceIndex >= 0.40) {
             classification = { text: "Média/Alta Confiança", cssClass: "medium" };
           }
-          // Cria o card HTML
           const card = document.createElement("div");
           card.className = "card";
-          // Cabeçalho: logotipos e informações dos times
           const header = document.createElement("div");
           header.className = "card-header";
           const homeImg = document.createElement("img");
@@ -589,13 +547,11 @@
                               "<p>" + (game.competition_full || "Competição") + "</p>";
           header.appendChild(infoDiv);
           card.appendChild(header);
-          // Corpo: previsão e odds
           const body = document.createElement("div");
           body.className = "card-body";
           body.innerHTML = "<p><strong>Previsão:</strong> " + game["1x2"] + "</p>" +
                            "<p><strong>Odd da Dica:</strong> " + getOddTip(game) + "</p>";
           card.appendChild(body);
-          // Rodapé: índice de confiança e classificação
           const footer = document.createElement("div");
           footer.className = "card-footer";
           footer.innerHTML = "<span><strong>Índice de Confiança:</strong> " + (confidenceIndex * 100).toFixed(2) + "%</span>" +
@@ -637,10 +593,14 @@
           });
       });
 
+      // Evento para o botão de treinar modelo com dados reais das APIs
+      document.getElementById("train-model-btn").addEventListener("click", async function() {
+        await trainNewModel();
+      });
+
       /******************************************************************
        * OUTRAS FUNÇÕES AUXILIARES
        ******************************************************************/
-      // Formata a data no formato "DD/MM/YYYY HH:MM"
       function formatDate(dateStr) {
         if (!dateStr) return "Data não disponível";
         const dateObj = new Date(dateStr);
@@ -652,7 +612,6 @@
         return day + "/" + month + "/" + year + " " + hours + ":" + minutes;
       }
 
-      // Verifica se a previsão foi correta (com base no resultado final)
       function verifyPrediction(prediction) {
         const homeGoals = parseInt(prediction.home_goals, 10);
         const awayGoals = parseInt(prediction.away_goals, 10);
