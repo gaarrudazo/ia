@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <title>Sistema Neural de Previsão de Jogos</title>
+    <!-- Carrega TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <!-- Você pode incluir uma fonte do Google Fonts, por exemplo: -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      /* Reset básico e fontes */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: 'Roboto', sans-serif;
+        background: #f0f2f5;
+        color: #333;
+        padding: 20px;
+      }
+      header {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      header h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+        color: #1a73e8;
+      }
+      header p {
+        font-size: 1.1em;
+        color: #555;
+      }
+      /* Formulário de Busca */
+      form#search-form {
+        max-width: 500px;
+        margin: 0 auto 20px auto;
+        padding: 20px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      form#search-form label {
+        font-weight: 500;
+        display: block;
+        margin-bottom: 8px;
+        color: #444;
+      }
+      form#search-form input[type="date"],
+      form#search-form input[type="text"] {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 1em;
+      }
+      form#search-form button {
+        width: 100%;
+        padding: 12px;
+        background: #1a73e8;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 1.1em;
+        cursor: pointer;
+        transition: background 0.3s ease;
+      }
+      form#search-form button:hover {
+        background: #1558b0;
+      }
+      /* Área de Resultados */
+      #results {
+        max-width: 900px;
+        margin: 20px auto;
+      }
+      .card {
+        background: #fff;
+        margin-bottom: 20px;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      }
+      .card-header {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        border-bottom: 1px solid #e0e0e0;
+        padding-bottom: 15px;
+        margin-bottom: 15px;
+      }
+      .card-header img {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        object-fit: cover;
+      }
+      .card-header .team-info {
+        flex: 1;
+      }
+      .card-header h2 {
+        font-size: 1.3em;
+        margin-bottom: 5px;
+      }
+      .card-header p {
+        font-size: 0.9em;
+        color: #777;
+      }
+      .card-body p {
+        margin: 10px 0;
+        font-size: 1em;
+      }
+      .card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.95em;
+        color: #555;
+      }
+      .badge {
+        padding: 5px 10px;
+        border-radius: 4px;
+        color: #fff;
+        font-weight: 500;
+      }
+      .high { background-color: #4caf50; }
+      .medium { background-color: #ff9800; }
+      .low { background-color: #f44336; }
+      /* Área de Log */
+      #log {
+        max-width: 900px;
+        margin: 20px auto;
+        background: #eef2f7;
+        padding: 15px;
+        border-radius: 8px;
+        height: 150px;
+        overflow-y: auto;
+        font-size: 0.9em;
+        color: #333;
+      }
+      /* Responsividade */
+      @media (max-width: 600px) {
+        header h1 { font-size: 2em; }
+        form#search-form { padding: 15px; }
+        .card-header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .card-header img {
+          width: 40px;
+          height: 40px;
+        }
+        .card-header h2 {
+          font-size: 1.1em;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Sistema Neural de Previsão de Jogos</h1>
+      <p>Consulte as dicas e veja o índice de confiança das previsões</p>
+    </header>
+    <!-- Formulário de Busca -->
+    <form id="search-form">
+      <label for="dateFrom">Selecione a Data:</label>
+      <!-- Usando input type "date" para facilitar a escolha -->
+      <input type="date" id="dateFrom" required>
+      <button type="submit">Pesquisar</button>
+    </form>
+    <!-- Área para exibir os resultados -->
+    <div id="results"></div>
+    <!-- Área para logs -->
+    <pre id="log"></pre>
+    
+    <script>
+      /******************************************************************
+       * CONFIGURAÇÕES E FUNÇÕES BÁSICAS
+       ******************************************************************/
+      const BASE_URL = "https://superpro2025.onrender.com";
+
+      // Retorna a data atual no formato "YYYY-MM-DD"
+      function getCurrentDate() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, "0");
+        const day = String(today.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
+
+      // Função para registrar mensagens de log
+      function log(msg) {
+        console.log(msg);
+        const logEl = document.getElementById("log");
+        if (logEl) {
+          logEl.textContent += msg + "\n";
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+      }
+
+      /******************************************************************
+       * FUNÇÕES DE ACESSO ÀS APIs
+       ******************************************************************/
+      
+      // Busca jogos do dia via servidor proxy
+      async function fetchDailyGames() {
+        const today = getCurrentDate();
+        const endpoint = "/api/sports?dateFrom=" + encodeURIComponent(today) + "&dateTo=" + encodeURIComponent(today);
+        const url = BASE_URL + endpoint;
+        try {
+          log("Buscando jogos do dia...");
+          const response = await fetch(url, { method: "GET" });
+          if (!response.ok) throw new Error("Erro: " + response.status);
+          const data = await response.json();
+          log("Jogos recebidos: " + (Array.isArray(data) ? data.length : 0));
+          return data;
+        } catch (error) {
+          log("Erro ao buscar jogos: " + error);
+          return [];
+        }
+      }
+
+      // Busca dados históricos de uma equipe via API‑Sports
+      async function fetchTeamHistoricalData(teamId) {
+        const season = 2024;
+        const url = "https://v3.football.api-sports.io/fixtures?team=" + teamId + "&season=" + season + "&last=30";
+        try {
+          log("Buscando dados históricos para o time ID " + teamId + "...");
+          const response = await fetch(url, {
+            method: "GET",
+            headers: {
+              "x-rapidapi-host": "v3.football.api-sports.io",
+              "x-rapidapi-key": "b77014eeea8142d354a2e0479bcc2d08"
+            }
+          });
+          if (!response.ok) throw new Error("Erro: " + response.status);
+          const data = await response.json();
+          let wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
+          if (Array.isArray(data.response)) {
+            data.response.forEach(fixture => {
+              if (fixture.fixture.status.short === "FT") {
+                let teamScore = 0, opponentScore = 0;
+                if (fixture.teams.home.id === teamId) {
+                  teamScore = fixture.goals.home;
+                  opponentScore = fixture.goals.away;
+                } else if (fixture.teams.away.id === teamId) {
+                  teamScore = fixture.goals.away;
+                  opponentScore = fixture.goals.home;
+                }
+                goalsFor += teamScore;
+                goalsAgainst += opponentScore;
+                if (teamScore > opponentScore) wins++;
+                else if (teamScore === opponentScore) draws++;
+                else losses++;
+              }
+            });
+          }
+          // Valores padrão para ranking, campeonatos e forma
+          const ranking = 0, championships = 0, form = "";
+          return { jogos: 30, vitorias: wins, empates: draws, derrotas: losses, golsFavor: goalsFor, golsContra: goalsAgainst, ranking: ranking, campeonatosGanhados: championships, form: form };
+        } catch (error) {
+          log("Erro ao buscar dados históricos para o time " + teamId + ": " + error);
+          return { jogos: 30, vitorias: 0, empates: 0, derrotas: 0, golsFavor: 0, golsContra: 0, ranking: 0, campeonatosGanhados: 0, form: "" };
+        }
+      }
+
+      // Busca head-to-head entre duas equipes via API‑Sports
+      async function fetchHeadToHead(teamAId, teamBId) {
+        const season = 2024;
+        const url = "https://v3.football.api-sports.io/fixtures/headtohead?h2h=" + teamAId + "-" + teamBId + "&season=" + season + "&last=15";
+        try {
+          log("Buscando head-to-head para " + teamAId + " vs " + teamBId + "...");
+          const response = await fetch(url, {
+            method: "GET",
+            headers: {
+              "x-rapidapi-host": "v3.football.api-sports.io",
+              "x-rapidapi-key": "b77014eeea8142d354a2e0479bcc2d08"
+            }
+          });
+          if (!response.ok) throw new Error("Erro: " + response.status);
+          const data = await response.json();
+          let winsA = 0, winsB = 0, draws = 0;
+          if (Array.isArray(data.response)) {
+            data.response.forEach(fixture => {
+              if (fixture.fixture.status.short === "FT") {
+                if (fixture.teams.home.id === teamAId) {
+                  if (fixture.goals.home > fixture.goals.away) winsA++;
+                  else if (fixture.goals.home < fixture.goals.away) winsB++;
+                  else draws++;
+                } else if (fixture.teams.home.id === teamBId) {
+                  if (fixture.goals.home > fixture.goals.away) winsB++;
+                  else if (fixture.goals.home < fixture.goals.away) winsA++;
+                  else draws++;
+                }
+              }
+            });
+          }
+          return { jogos: 15, winsA: winsA, winsB: winsB, draws: draws };
+        } catch (error) {
+          log("Erro ao buscar head-to-head: " + error);
+          return { jogos: 15, winsA: 0, winsB: 0, draws: 0 };
+        }
+      }
+
+      /******************************************************************
+       * FUNÇÕES DE CÁLCULO MANUAL (FALLBACK)
+       ******************************************************************/
+      
+      // Converte a string de forma (ex: "WWLWD") em um escore numérico
+      function formScore(formStr) {
+        if (!formStr) return 0;
+        let score = 0;
+        for (let i = 0; i < formStr.length; i++) {
+          const char = formStr.charAt(i);
+          if (char === "W") score += 1;
+          else if (char === "L") score -= 1;
+        }
+        return score;
+      }
+
+      // Cálculo manual do índice de confiança baseado na dica e ajustes
+      function calcularIndiceConfiancaPorTip(jogo, teamA, teamB, headToHead) {
+        const tip = jogo["1x2"];
+        const oddHome = parseFloat(jogo.home_win_odds) || 0;
+        const oddDraw = parseFloat(jogo.draw_odds) || 0;
+        const oddAway = parseFloat(jogo.away_win_odds) || 0;
+        const pHome = oddHome > 0 ? 1 / oddHome : 0;
+        const pDraw = oddDraw > 0 ? 1 / oddDraw : 0;
+        const pAway = oddAway > 0 ? 1 / oddAway : 0;
+        const totalP = pHome + pDraw + pAway;
+        const norm_pHome = totalP > 0 ? pHome / totalP : 0;
+        const norm_pDraw = totalP > 0 ? pDraw / totalP : 0;
+        const norm_pAway = totalP > 0 ? pAway / totalP : 0;
+        let baseProb = 0;
+        if (tip === "1") baseProb = norm_pHome;
+        else if (tip === "X") baseProb = norm_pDraw;
+        else if (tip === "2") baseProb = norm_pAway;
+        else if (tip === "1X") baseProb = norm_pHome + norm_pDraw;
+        else if (tip === "2X") baseProb = norm_pAway + norm_pDraw;
+        else if (tip === "12") baseProb = norm_pHome + norm_pAway;
+        else baseProb = 0;
+
+        const winRateA = teamA.jogos > 0 ? teamA.vitorias / teamA.jogos : 0;
+        const winRateB = teamB.jogos > 0 ? teamB.vitorias / teamB.jogos : 0;
+        const winRateDiff = (winRateA - winRateB) / 2;
+
+        const goalDiffA = teamA.jogos > 0 ? (teamA.golsFavor - teamA.golsContra) / teamA.jogos : 0;
+        const goalDiffB = teamB.jogos > 0 ? (teamB.golsFavor - teamB.golsContra) / teamB.jogos : 0;
+        const goalAdjustment = (goalDiffA - goalDiffB) / 10;
+
+        let h2hAdjustment = 0;
+        if (headToHead.jogos > 0) {
+          if (tip === "1" || tip === "1X")
+            h2hAdjustment = ((headToHead.winsA - headToHead.winsB) / headToHead.jogos) * 0.1;
+          else if (tip === "2" || tip === "2X")
+            h2hAdjustment = ((headToHead.winsB - headToHead.winsA) / headToHead.jogos) * 0.1;
+        }
+
+        let rankingAdjustment = 0;
+        if (tip === "1" || tip === "1X")
+          rankingAdjustment = (teamB.ranking - teamA.ranking) / 100;
+        else if (tip === "2" || tip === "2X")
+          rankingAdjustment = (teamA.ranking - teamB.ranking) / 100;
+
+        let trophyAdjustment = 0;
+        if (tip === "1" || tip === "1X")
+          trophyAdjustment = (teamA.campeonatosGanhados - teamB.campeonatosGanhados) / 50;
+        else if (tip === "2" || tip === "2X")
+          trophyAdjustment = (teamB.campeonatosGanhados - teamA.campeonatosGanhados) / 50;
+
+        const formA = formScore(teamA.form || "");
+        const formB = formScore(teamB.form || "");
+        const formAdjustment = (formA - formB) / 10;
+
+        const overallAdjustment = winRateDiff + goalAdjustment + h2hAdjustment + rankingAdjustment + trophyAdjustment + formAdjustment;
+        let adjustedProb = baseProb + overallAdjustment;
+        adjustedProb = Math.min(Math.max(adjustedProb, 0), 1);
+
+        const myOdds = adjustedProb > 0 ? 1 / adjustedProb : Infinity;
+        const marketOdd = parseFloat(getOddTip(jogo)) || 0;
+        let oddsAdjustment = 0;
+        if (myOdds !== Infinity && marketOdd > 0) {
+          oddsAdjustment = ((marketOdd - myOdds) / marketOdd) * 0.1;
+        }
+        let finalIndex = adjustedProb + oddsAdjustment;
+        finalIndex = Math.min(Math.max(finalIndex, 0), 1);
+        return finalIndex;
+      }
+
+      // Retorna a odd conforme o tipo de previsão
+      function getOddTip(jogo) {
+        const tip = jogo["1x2"];
+        let odd;
+        if (tip === "1") odd = jogo.home_win_odds;
+        else if (tip === "X") odd = jogo.draw_odds;
+        else if (tip === "2") odd = jogo.away_win_odds;
+        else if (tip === "12") odd = jogo["12_odds"];
+        else if (tip === "1X") odd = jogo["1x_odds"];
+        else if (tip === "2X") odd = jogo["2x_odds"];
+        else odd = "N/A";
+        return odd;
+      }
+
+      /******************************************************************
+       * FUNÇÕES DO MODELO NEURAL
+       ******************************************************************/
+
+      // Variável global para armazenar o modelo neural pré-treinado
+      let neuralModel = null;
+
+      // Arrays de médias e desvios para normalização (ajuste conforme os dados usados no treinamento)
+      const medias = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];  
+      const desvios = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+      // Função para normalizar um vetor de características
+      function normalizeVector(vector) {
+        return vector.map((value, index) => (value - medias[index]) / desvios[index]);
+      }
+
+      // Função para extrair o vetor de características (11 features) a partir dos dados do jogo e das equipes
+      function extractFeatureVector(jogo, teamA, teamB, headToHead) {
+        const tip = jogo["1x2"];
+        // 1. Base probability
+        const oddHome = parseFloat(jogo.home_win_odds) || 0;
+        const oddDraw = parseFloat(jogo.draw_odds) || 0;
+        const oddAway = parseFloat(jogo.away_win_odds) || 0;
+        const pHome = oddHome > 0 ? 1 / oddHome : 0;
+        const pDraw = oddDraw > 0 ? 1 / oddDraw : 0;
+        const pAway = oddAway > 0 ? 1 / oddAway : 0;
+        const total = pHome + pDraw + pAway;
+        let baseProb = 0;
+        if (total > 0) {
+          const normHome = pHome / total;
+          const normDraw = pDraw / total;
+          const normAway = pAway / total;
+          if (tip === "1") baseProb = normHome;
+          else if (tip === "X") baseProb = normDraw;
+          else if (tip === "2") baseProb = normAway;
+          else if (tip === "1X") baseProb = normHome + normDraw;
+          else if (tip === "2X") baseProb = normAway + normDraw;
+          else if (tip === "12") baseProb = normHome + normAway;
+        }
+        // 2. Diferença de taxa de vitórias
+        const winRateA = teamA.jogos > 0 ? teamA.vitorias / teamA.jogos : 0;
+        const winRateB = teamB.jogos > 0 ? teamB.vitorias / teamB.jogos : 0;
+        const winRateDiff = (winRateA - winRateB) / 2;
+        // 3. Diferença de média de gols
+        const goalDiffA = teamA.jogos > 0 ? (teamA.golsFavor - teamA.golsContra) / teamA.jogos : 0;
+        const goalDiffB = teamB.jogos > 0 ? (teamB.golsFavor - teamB.golsContra) / teamB.jogos : 0;
+        const goalDiff = (goalDiffA - goalDiffB) / 10;
+        // 4. Head-to-head
+        let h2h = 0;
+        if (headToHead.jogos > 0) {
+          if (tip === "1" || tip === "1X")
+            h2h = ((headToHead.winsA - headToHead.winsB) / headToHead.jogos) * 0.1;
+          else if (tip === "2" || tip === "2X")
+            h2h = ((headToHead.winsB - headToHead.winsA) / headToHead.jogos) * 0.1;
+        }
+        // 5. Diferença de ranking
+        let rankingDiff = 0;
+        if (tip === "1" || tip === "1X")
+          rankingDiff = (teamB.ranking - teamA.ranking) / 100;
+        else if (tip === "2" || tip === "2X")
+          rankingDiff = (teamA.ranking - teamB.ranking) / 100;
+        // 6. Diferença de campeonatos ganhos
+        let trophyDiff = 0;
+        if (tip === "1" || tip === "1X")
+          trophyDiff = (teamA.campeonatosGanhados - teamB.campeonatosGanhados) / 50;
+        else if (tip === "2" || tip === "2X")
+          trophyDiff = (teamB.campeonatosGanhados - teamA.campeonatosGanhados) / 50;
+        // 7. Diferença de forma (momentum)
+        const formA = formScore(teamA.form || "");
+        const formB = formScore(teamB.form || "");
+        const formDiff = (formA - formB) / 10;
+        // 8. Vantagem de casa
+        const homeAdvantage = (tip === "1" || tip === "1X") ? 0.05 : 0;
+        // 9. Ajuste extra de momentum se diferença significativa
+        const extraMomentum = Math.abs(formA - formB) >= 2 ? (formA - formB) * 0.01 : 0;
+        // 10. Ajuste ofensivo
+        let offAdjust = 0;
+        if (tip === "1" || tip === "1X") {
+          const offA = teamA.jogos > 0 ? teamA.golsFavor / teamA.jogos : 0;
+          const defB = teamB.jogos > 0 ? teamB.golsContra / teamB.jogos : 0;
+          offAdjust = (offA - defB) * 0.05;
+        } else if (tip === "2" || tip === "2X") {
+          const offB = teamB.jogos > 0 ? teamB.golsFavor / teamB.jogos : 0;
+          const defA = teamA.jogos > 0 ? teamA.golsContra / teamA.jogos : 0;
+          offAdjust = (offB - defA) * 0.05;
+        }
+        // 11. Ajuste baseado na discrepância entre a odd implícita e a odd de mercado
+        const myOdds = baseProb > 0 ? 1 / baseProb : Infinity;
+        const marketOdd = parseFloat(getOddTip(jogo)) || 0;
+        let oddsAdjust = 0;
+        if (myOdds !== Infinity && marketOdd > 0) {
+          oddsAdjust = ((marketOdd - myOdds) / marketOdd) * 0.1;
+        }
+        // Vetor de features (11 features)
+        const features = [
+          baseProb,
+          winRateDiff,
+          goalDiff,
+          h2h,
+          rankingDiff,
+          trophyDiff,
+          formDiff,
+          homeAdvantage,
+          extraMomentum,
+          offAdjust,
+          oddsAdjust
+        ];
+        // Retorna o vetor normalizado
+        return normalizeVector(features);
+      }
+
+      // Função para prever o índice de confiança usando o modelo neural
+      async function predictConfidenceIndex(jogo, teamA, teamB, headToHead) {
+        if (neuralModel === null) {
+          log("Modelo neural não carregado; utilizando cálculo manual.");
+          return calcularIndiceConfiancaPorTip(jogo, teamA, teamB, headToHead);
+        }
+        const featureVector = extractFeatureVector(jogo, teamA, teamB, headToHead);
+        const inputTensor = tf.tensor2d([featureVector]); // 1 exemplo, N features
+        const outputTensor = neuralModel.predict(inputTensor);
+        const prediction = await outputTensor.data();
+        inputTensor.dispose();
+        outputTensor.dispose();
+        return prediction[0];
+      }
+
+      // Função para carregar o modelo neural a partir do GitHub Pages
+      async function loadNeuralModel() {
+        try {
+          log("Carregando modelo neural...");
+          // Atualize a URL abaixo para a URL real do seu model.json hospedado via GitHub Pages.
+          neuralModel = await tf.loadLayersModel("https://seuusuario.github.io/seu-repositorio/model.json");
+          log("Modelo neural carregado com sucesso.");
+        } catch (error) {
+          log("Erro ao carregar o modelo neural: " + error);
+        }
+      }
+
+      // Carrega o modelo neural assim que a página for carregada
+      loadNeuralModel();
+
+      /******************************************************************
+       * FUNÇÃO DE RENDERIZAÇÃO DOS CARTÕES
+       ******************************************************************/
+      async function renderCards(games) {
+        const resultsSection = document.getElementById("results");
+        resultsSection.innerHTML = "";
+        for (let i = 0; i < games.length; i++) {
+          const game = games[i];
+          // Busca dados históricos e head-to-head em paralelo
+          const [teamAData, teamBData, h2hData] = await Promise.all([
+            fetchTeamHistoricalData(game.homeID),
+            fetchTeamHistoricalData(game.awayID),
+            fetchHeadToHead(game.homeID, game.awayID)
+          ]);
+          // Prever o índice de confiança (usando o modelo neural ou fallback manual)
+          const confidenceIndex = await predictConfidenceIndex(game, teamAData, teamBData, h2hData);
+          // Define a classificação visual
+          let classification = { text: "Baixa Confiança", cssClass: "low" };
+          if (confidenceIndex >= 0.70) {
+            classification = { text: "Alta Confiança", cssClass: "high" };
+          } else if (confidenceIndex >= 0.40) {
+            classification = { text: "Média/Alta Confiança", cssClass: "medium" };
+          }
+          // Cria o card HTML
+          const card = document.createElement("div");
+          card.className = "card";
+          // Cabeçalho: logotipos e informações dos times
+          const header = document.createElement("div");
+          header.className = "card-header";
+          const homeImg = document.createElement("img");
+          homeImg.src = game.homeLogo ? game.homeLogo.replace(/\\\//g, "/") : "https://via.placeholder.com/50?text=Casa";
+          homeImg.alt = game.homeTeam || "Time da Casa";
+          homeImg.loading = "lazy";
+          header.appendChild(homeImg);
+          const awayImg = document.createElement("img");
+          awayImg.src = game.awayLogo ? game.awayLogo.replace(/\\\//g, "/") : "https://via.placeholder.com/50?text=Fora";
+          awayImg.alt = game.awayTeam || "Time Visitante";
+          awayImg.loading = "lazy";
+          header.appendChild(awayImg);
+          const infoDiv = document.createElement("div");
+          infoDiv.className = "team-info";
+          infoDiv.innerHTML = "<h2>" + (game.homeTeam || "Casa") + " vs " + (game.awayTeam || "Fora") + "</h2>" +
+                              "<p>" + (game.competition_full || "Competição") + "</p>";
+          header.appendChild(infoDiv);
+          card.appendChild(header);
+          // Corpo: previsão e odds
+          const body = document.createElement("div");
+          body.className = "card-body";
+          body.innerHTML = "<p><strong>Previsão:</strong> " + game["1x2"] + "</p>" +
+                           "<p><strong>Odd da Dica:</strong> " + getOddTip(game) + "</p>";
+          card.appendChild(body);
+          // Rodapé: índice de confiança e classificação
+          const footer = document.createElement("div");
+          footer.className = "card-footer";
+          footer.innerHTML = "<span><strong>Índice de Confiança:</strong> " + (confidenceIndex * 100).toFixed(2) + "%</span>" +
+                             "<span class='badge " + classification.cssClass + "'>" + classification.text + "</span>";
+          card.appendChild(footer);
+          resultsSection.appendChild(card);
+        }
+      }
+
+      /******************************************************************
+       * EVENTOS DE INTERFACE
+       ******************************************************************/
+      // Evento do formulário de busca
+      document.getElementById("search-form").addEventListener("submit", function(event) {
+        event.preventDefault();
+        const dateFrom = document.getElementById("dateFrom").value;
+        if (!dateFrom) {
+          alert("Por favor, selecione uma data.");
+          return;
+        }
+        const resultsSection = document.getElementById("results");
+        resultsSection.innerHTML = "<p>Carregando dicas...</p>";
+        const apiUrl = BASE_URL + "/api/sports?dateFrom=" + encodeURIComponent(dateFrom) + "&dateTo=" + encodeURIComponent(dateFrom);
+        fetch(apiUrl)
+          .then(function(response) {
+            if (!response.ok) throw new Error("Erro: " + response.status);
+            return response.json();
+          })
+          .then(function(data) {
+            if (!Array.isArray(data) || data.length === 0) {
+              resultsSection.innerHTML = "<p>Nenhuma dica encontrada para a data informada.</p>";
+              return;
+            }
+            renderCards(data);
+          })
+          .catch(function(error) {
+            console.error("Erro ao buscar dicas:", error);
+            resultsSection.innerHTML = '<p class="error">Ocorreu um erro. Tente novamente mais tarde.</p>';
+          });
+      });
+
+      /******************************************************************
+       * OUTRAS FUNÇÕES AUXILIARES
+       ******************************************************************/
+      // Formata a data no formato "DD/MM/YYYY HH:MM"
+      function formatDate(dateStr) {
+        if (!dateStr) return "Data não disponível";
+        const dateObj = new Date(dateStr);
+        const day = String(dateObj.getDate()).padStart(2, "0");
+        const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+        const year = dateObj.getFullYear();
+        const hours = String(dateObj.getHours()).padStart(2, "0");
+        const minutes = String(dateObj.getMinutes()).padStart(2, "0");
+        return day + "/" + month + "/" + year + " " + hours + ":" + minutes;
+      }
+
+      // Verifica se a previsão foi correta (com base no resultado final)
+      function verifyPrediction(prediction) {
+        const homeGoals = parseInt(prediction.home_goals, 10);
+        const awayGoals = parseInt(prediction.away_goals, 10);
+        const result = homeGoals > awayGoals ? "1" : homeGoals < awayGoals ? "2" : "X";
+        return prediction["1x2"].includes(result);
+      }
+
+      /******************************************************************
+       * EVENTOS PARA SIDEBAR E LOGOUT (EXEMPLO)
+       ******************************************************************/
+      document.addEventListener("DOMContentLoaded", function() {
+        const sidebar = document.getElementById("sidebar");
+        const mobileMenuBtn = document.getElementById("mobile-menu-btn");
+        const closeBtn = document.getElementById("close-btn");
+        const overlay = document.getElementById("overlay");
+
+        if (mobileMenuBtn) {
+          mobileMenuBtn.addEventListener("click", function() {
+            sidebar.classList.add("active");
+            overlay.classList.add("active");
+            mobileMenuBtn.style.display = "none";
+          });
+        }
+        if (closeBtn) {
+          closeBtn.addEventListener("click", function() {
+            sidebar.classList.remove("active");
+            overlay.classList.remove("active");
+            mobileMenuBtn.style.display = "block";
+          });
+        }
+        if (overlay) {
+          overlay.addEventListener("click", function() {
+            sidebar.classList.remove("active");
+            overlay.classList.remove("active");
+            mobileMenuBtn.style.display = "block";
+          });
+        }
+        const logoutBtn = document.getElementById("logout-btn");
+        if (logoutBtn) {
+          logoutBtn.addEventListener("click", function(event) {
+            event.preventDefault();
+            localStorage.removeItem("authToken");
+            window.location.href = "index.html";
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
